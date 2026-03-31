@@ -180,7 +180,7 @@ class TextToSpeechManager(private val context: Context) {
     }
     
     fun pause() {
-        tts?.playSilentUtterance(100, TextToSpeech.QUEUE_PLAY, null)
+        tts?.playSilentUtterance(100, TextToSpeech.QUEUE_ADD, null)
     }
     
     fun resume() {
