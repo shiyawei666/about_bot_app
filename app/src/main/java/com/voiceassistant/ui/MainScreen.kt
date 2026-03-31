@@ -37,10 +37,12 @@ fun MainScreen(
     messages: List<Message>,
     currentResponse: String,
     isRecording: Boolean,
+    isWakeWordEnabled: Boolean,
     onMicClick: () -> Unit,
     onStopClick: () -> Unit,
     onClearClick: () -> Unit,
-    onSettingsClick: () -> Unit
+    onSettingsClick: () -> Unit,
+    onToggleWakeWord: () -> Unit
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
     val scale by infiniteTransition.animateFloat(
@@ -52,7 +54,7 @@ fun MainScreen(
         ),
         label = "scale"
     )
-    
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -67,6 +69,16 @@ fun MainScreen(
                     titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
                 ),
                 actions = {
+                    // 语音唤醒开关
+                    IconButton(onClick = onToggleWakeWord) {
+                        Icon(
+                            imageVector = if (isWakeWordEnabled) 
+                                Icons.Default.Hearing else Icons.Default.HearingDisabled,
+                            contentDescription = if (isWakeWordEnabled) "语音唤醒已开启" else "语音唤醒已关闭",
+                            tint = if (isWakeWordEnabled) 
+                                MaterialTheme.colorScheme.primary else Color.Gray
+                        )
+                    }
                     IconButton(onClick = onSettingsClick) {
                         Icon(
                             imageVector = Icons.Default.Settings,
@@ -88,18 +100,28 @@ fun MainScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
+            // 语音唤醒提示卡片
+            if (isWakeWordEnabled && uiState == UIState.WakeWordListening) {
+                WakeWordHintCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+            }
+
             MessageList(
                 messages = messages,
                 currentResponse = currentResponse,
                 isStreaming = uiState == UIState.Processing,
                 modifier = Modifier.weight(1f)
             )
-            
+
             StatusIndicator(
                 uiState = uiState,
+                isWakeWordEnabled = isWakeWordEnabled,
                 modifier = Modifier.padding(16.dp)
             )
-            
+
             MicButton(
                 isRecording = isRecording,
                 isProcessing = uiState == UIState.Processing || uiState == UIState.Speaking,
@@ -116,6 +138,47 @@ fun MainScreen(
                     .align(Alignment.CenterHorizontally)
                     .padding(bottom = 32.dp)
             )
+        }
+    }
+}
+
+@Composable
+fun WakeWordHintCard(
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f)
+        ),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.Mic,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column {
+                Text(
+                    text = "语音唤醒已开启",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                )
+                Text(
+                    text = "说 \"你好助手\"、\"小助手\" 或 \"嗨助手\" 唤醒我",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
+                )
+            }
         }
     }
 }
@@ -145,7 +208,7 @@ fun MessageList(
                 )
             }
         }
-        
+
         items(messages.reversed()) { message ->
             MessageBubble(message = message)
             Spacer(modifier = Modifier.height(8.dp))
@@ -162,13 +225,13 @@ fun MessageBubble(
     } else {
         MaterialTheme.colorScheme.secondaryContainer
     }
-    
+
     val contentColor = if (message.isUser) {
         MaterialTheme.colorScheme.onPrimaryContainer
     } else {
         MaterialTheme.colorScheme.onSecondaryContainer
     }
-    
+
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (message.isUser) Arrangement.End else Arrangement.Start
@@ -217,21 +280,31 @@ fun MessageBubble(
 @Composable
 fun StatusIndicator(
     uiState: UIState,
+    isWakeWordEnabled: Boolean,
     modifier: Modifier = Modifier
 ) {
     val (text, color, icon) = when (uiState) {
-        is UIState.Idle -> Triple("点击麦克风开始对话", Color.Gray, Icons.Default.Mic)
+        is UIState.Idle -> Triple(
+            if (isWakeWordEnabled) "等待唤醒..." else "点击麦克风开始对话",
+            Color.Gray,
+            if (isWakeWordEnabled) Icons.Default.Hearing else Icons.Default.Mic
+        )
+        is UIState.WakeWordListening -> Triple(
+            "等待唤醒词...",
+            Color(0xFF9C27B0),
+            Icons.Default.Hearing
+        )
         is UIState.Listening -> Triple("正在聆听...", Color(0xFF4CAF50), Icons.Default.Mic)
         is UIState.Processing -> Triple("正在思考...", Color(0xFF2196F3), Icons.Default.Psychology)
         is UIState.Speaking -> Triple("正在播放...", Color(0xFFFF9800), Icons.Default.VolumeUp)
         is UIState.Error -> Triple(uiState.message, Color.Red, Icons.Default.Error)
     }
-    
+
     val animatedColor by animateColorAsState(
         targetValue = color,
         label = "statusColor"
     )
-    
+
     Row(
         modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.Center,
@@ -266,13 +339,13 @@ fun MicButton(
         isProcessing -> Color(0xFFFF9800)
         else -> MaterialTheme.colorScheme.primary
     }
-    
+
     val icon: ImageVector = when {
         isRecording -> Icons.Default.Stop
         isProcessing -> Icons.Default.Stop
         else -> Icons.Default.Mic
     }
-    
+
     FloatingActionButton(
         onClick = onClick,
         modifier = modifier

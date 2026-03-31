@@ -38,11 +38,24 @@ class PreferenceManager(context: Context) {
     }
     
     fun getSpeechRate(): Float = prefs.getFloat(KEY_SPEECH_RATE, DEFAULT_SPEECH_RATE)
-    
+
     fun setSpeechRate(rate: Float) {
         prefs.edit().putFloat(KEY_SPEECH_RATE, rate).apply()
     }
-    
+
+    // 新增：语音唤醒设置
+    fun isWakeWordEnabled(): Boolean = prefs.getBoolean(KEY_WAKE_WORD_ENABLED, DEFAULT_WAKE_WORD_ENABLED)
+
+    fun setWakeWordEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_WAKE_WORD_ENABLED, enabled).apply()
+    }
+
+    fun getWakeWords(): String = prefs.getString(KEY_WAKE_WORDS, DEFAULT_WAKE_WORDS) ?: DEFAULT_WAKE_WORDS
+
+    fun setWakeWords(wakeWords: String) {
+        prefs.edit().putString(KEY_WAKE_WORDS, wakeWords).apply()
+    }
+
     companion object {
         private const val PREFS_NAME = "voice_assistant_prefs"
         private const val KEY_API_KEY = "api_key"
@@ -51,11 +64,15 @@ class PreferenceManager(context: Context) {
         private const val KEY_TEMPERATURE = "temperature"
         private const val KEY_MAX_TOKENS = "max_tokens"
         private const val KEY_SPEECH_RATE = "speech_rate"
-        
+        private const val KEY_WAKE_WORD_ENABLED = "wake_word_enabled"
+        private const val KEY_WAKE_WORDS = "wake_words"
+
         private const val DEFAULT_BASE_URL = "http://localhost:8000/v1"
         private const val DEFAULT_MODEL = "default"
         private const val DEFAULT_TEMPERATURE = 0.7f
         private const val DEFAULT_MAX_TOKENS = 2048
         private const val DEFAULT_SPEECH_RATE = 1.0f
+        private const val DEFAULT_WAKE_WORD_ENABLED = true
+        private const val DEFAULT_WAKE_WORDS = "你好助手,小助手,嗨助手"
     }
 }
