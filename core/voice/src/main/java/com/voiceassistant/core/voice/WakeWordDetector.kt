@@ -47,8 +47,14 @@ class WakeWordDetector(
             // 出错后短暂延迟重新开始监听
             if (isRunning) {
                 scope.launch {
-                    delay(500)
-                    restartListening()
+                    try {
+                        delay(500)
+                        if (isRunning) {
+                            restartListening()
+                        }
+                    } catch (e: CancellationException) {
+                        // 协程被取消，忽略
+                    }
                 }
             }
         }
@@ -70,8 +76,14 @@ class WakeWordDetector(
             // 继续监听
             if (isRunning) {
                 scope.launch {
-                    delay(300)
-                    restartListening()
+                    try {
+                        delay(300)
+                        if (isRunning) {
+                            restartListening()
+                        }
+                    } catch (e: CancellationException) {
+                        // 协程被取消，忽略
+                    }
                 }
             }
         }
@@ -92,8 +104,14 @@ class WakeWordDetector(
 
                 if (isRunning) {
                     scope.launch {
-                        delay(500)
-                        restartListening()
+                        try {
+                            delay(500)
+                            if (isRunning) {
+                                restartListening()
+                            }
+                        } catch (e: CancellationException) {
+                            // 协程被取消，忽略
+                        }
                     }
                 }
             }
@@ -137,6 +155,11 @@ class WakeWordDetector(
         if (!isRunning) return
 
         try {
+            if (speechRecognizer == null) {
+                _state.value = WakeWordState.Error("语音识别服务不可用")
+                return
+            }
+            
             speechRecognizer?.cancel()
 
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {

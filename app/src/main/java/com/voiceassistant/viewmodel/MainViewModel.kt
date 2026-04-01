@@ -82,110 +82,123 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var fullResponse = StringBuilder()
 
     init {
-        voiceRecognitionManager.initialize()
-        ttsManager.initialize()
-        wakeWordDetector.initialize()
+        try {
+            voiceRecognitionManager.initialize()
+            ttsManager.initialize()
+            wakeWordDetector.initialize()
 
-        // 如果启用了语音唤醒，开始监听
-        if (_isWakeWordEnabled.value) {
-            startWakeWordListening()
-        }
+            // 如果启用了语音唤醒，开始监听
+            if (_isWakeWordEnabled.value) {
+                startWakeWordListening()
+            }
 
-        viewModelScope.launch {
-            voiceRecognitionManager.state.collect { state ->
-                when (state) {
-                    is VoiceRecognitionState.Listening -> {
-                        _uiState.value = UIState.Listening
-                        _isRecording.value = true
-                    }
-                    is VoiceRecognitionState.Processing -> {
-                    }
-                    is VoiceRecognitionState.Result -> {
-                        _isRecording.value = false
-                        if (state.text.isNotEmpty()) {
-                            processUserInput(state.text)
-                        } else {
-                            // 如果没有识别到内容，回到唤醒监听状态
-                            if (_isWakeWordEnabled.value) {
-                                startWakeWordListening()
+            viewModelScope.launch {
+                voiceRecognitionManager.state.collect { state ->
+                    when (state) {
+                        is VoiceRecognitionState.Listening -> {
+                            _uiState.value = UIState.Listening
+                            _isRecording.value = true
+                        }
+                        is VoiceRecognitionState.Processing -> {
+                        }
+                        is VoiceRecognitionState.Result -> {
+                            _isRecording.value = false
+                            if (state.text.isNotEmpty()) {
+                                processUserInput(state.text)
                             } else {
-                                _uiState.value = UIState.Idle
+                                // 如果没有识别到内容，回到唤醒监听状态
+                                if (_isWakeWordEnabled.value) {
+                                    startWakeWordListening()
+                                } else {
+                                    _uiState.value = UIState.Idle
+                                }
                             }
                         }
-                    }
-                    is VoiceRecognitionState.Error -> {
-                        _uiState.value = UIState.Error(state.message)
-                        _isRecording.value = false
-                        // 出错后回到唤醒监听
-                        if (_isWakeWordEnabled.value) {
-                            startWakeWordListening()
-                        }
-                    }
-                    is VoiceRecognitionState.Idle -> {
-                        if (_uiState.value == UIState.Listening) {
+                        is VoiceRecognitionState.Error -> {
+                            _uiState.value = UIState.Error(state.message)
+                            _isRecording.value = false
+                            // 出错后回到唤醒监听
                             if (_isWakeWordEnabled.value) {
                                 startWakeWordListening()
-                            } else {
-                                _uiState.value = UIState.Idle
+                            }
+                        }
+                        is VoiceRecognitionState.Idle -> {
+                            if (_uiState.value == UIState.Listening) {
+                                if (_isWakeWordEnabled.value) {
+                                    startWakeWordListening()
+                                } else {
+                                    _uiState.value = UIState.Idle
+                                }
                             }
                         }
                     }
                 }
             }
-        }
 
-        viewModelScope.launch {
-            ttsManager.state.collect { state ->
-                when (state) {
-                    is TTSState.Speaking -> {
-                        _uiState.value = UIState.Speaking
-                    }
-                    is TTSState.Idle, is TTSState.Completed -> {
-                        if (_uiState.value == UIState.Speaking) {
-                            // 播放完成后回到唤醒监听状态
+            viewModelScope.launch {
+                ttsManager.state.collect { state ->
+                    when (state) {
+                        is TTSState.Speaking -> {
+                            _uiState.value = UIState.Speaking
+                        }
+                        is TTSState.Idle, is TTSState.Completed -> {
+                            if (_uiState.value == UIState.Speaking) {
+                                // 播放完成后回到唤醒监听状态
+                                if (_isWakeWordEnabled.value) {
+                                    startWakeWordListening()
+                                } else {
+                                    _uiState.value = UIState.Idle
+                                }
+                            }
+                        }
+                        is TTSState.Error -> {
+                            _uiState.value = UIState.Error(state.message)
                             if (_isWakeWordEnabled.value) {
                                 startWakeWordListening()
-                            } else {
-                                _uiState.value = UIState.Idle
                             }
                         }
                     }
-                    is TTSState.Error -> {
-                        _uiState.value = UIState.Error(state.message)
-                        if (_isWakeWordEnabled.value) {
-                            startWakeWordListening()
-                        }
-                    }
                 }
             }
-        }
 
-        // 监听唤醒词检测器状态
-        viewModelScope.launch {
-            wakeWordDetector.state.collect { state ->
-                when (state) {
-                    is WakeWordState.Listening -> {
-                        if (_uiState.value != UIState.Listening && 
-                            _uiState.value != UIState.Speaking &&
-                            _uiState.value != UIState.Processing) {
-                            _uiState.value = UIState.WakeWordListening
+            // 监听唤醒词检测器状态
+            viewModelScope.launch {
+                wakeWordDetector.state.collect { state ->
+                    when (state) {
+                        is WakeWordState.Listening -> {
+                            if (_uiState.value != UIState.Listening && 
+                                _uiState.value != UIState.Speaking &&
+                                _uiState.value != UIState.Processing) {
+                                _uiState.value = UIState.WakeWordListening
+                            }
                         }
-                    }
-                    is WakeWordState.WakeWordDetected -> {
-                        // 播放提示音或语音提示
-                        ttsManager.speak("我在听，请说")
-                        // 短暂延迟后开始语音识别
-                        viewModelScope.launch {
-                            delay(800)
-                            startVoiceRecognition()
+                        is WakeWordState.WakeWordDetected -> {
+                            // 播放提示音或语音提示
+                            try {
+                                ttsManager.speak("我在听，请说")
+                            } catch (e: Exception) {
+                                // 忽略TTS错误，继续执行
+                            }
+                            // 短暂延迟后开始语音识别
+                            viewModelScope.launch {
+                                try {
+                                    delay(800)
+                                    startVoiceRecognition()
+                                } catch (e: Exception) {
+                                    // 忽略延迟错误
+                                }
+                            }
                         }
+                        is WakeWordState.Error -> {
+                            // 错误时尝试重新启动
+                        }
+                        else -> {}
                     }
-                    is WakeWordState.Error -> {
-                        // 错误时尝试重新启动
-                    }
-                    else -> {}
                 }
             }
+        } catch (e: Exception) {
+            // 捕获初始化过程中的所有异常，避免应用崩溃
+            _uiState.value = UIState.Error("初始化失败: ${e.message}")
         }
     }
 
@@ -223,20 +236,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // 新增：开始语音识别（用于唤醒后的交互）
     private fun startVoiceRecognition() {
-        if (_uiState.value == UIState.Speaking) {
-            ttsManager.stop()
+        try {
+            if (_uiState.value == UIState.Speaking) {
+                ttsManager.stop()
+            }
+            _uiState.value = UIState.Listening
+            voiceRecognitionManager.startListening()
+        } catch (e: Exception) {
+            _uiState.value = UIState.Error("启动语音识别失败: ${e.message}")
+            if (_isWakeWordEnabled.value) {
+                startWakeWordListening()
+            }
         }
-        _uiState.value = UIState.Listening
-        voiceRecognitionManager.startListening()
     }
 
     // 原有的手动开始监听方法
     fun startListening() {
-        // 如果正在唤醒监听，先停止
-        if (_uiState.value == UIState.WakeWordListening) {
-            wakeWordDetector.pauseListening()
+        try {
+            // 如果正在唤醒监听，先停止
+            if (_uiState.value == UIState.WakeWordListening) {
+                wakeWordDetector.pauseListening()
+            }
+            startVoiceRecognition()
+        } catch (e: Exception) {
+            _uiState.value = UIState.Error("开始监听失败: ${e.message}")
+            if (_isWakeWordEnabled.value) {
+                startWakeWordListening()
+            }
         }
-        startVoiceRecognition()
     }
 
     fun stopListening() {
@@ -338,10 +365,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         super.onCleared()
-        wakeWordDetector.destroy()
-        voiceRecognitionManager.destroy()
-        ttsManager.destroy()
-        currentLlmJob?.cancel()
-        llmProvider.cancel()
+        try {
+            // 先取消协程
+            currentLlmJob?.cancel()
+            llmProvider.cancel()
+            
+            // 然后释放资源
+            wakeWordDetector.destroy()
+            voiceRecognitionManager.destroy()
+            ttsManager.destroy()
+        } catch (e: Exception) {
+            // 捕获并忽略异常，避免在销毁时崩溃
+        }
     }
 }

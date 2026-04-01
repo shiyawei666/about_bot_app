@@ -78,14 +78,23 @@ class VoiceRecognitionManager(private val context: Context) {
     }
     
     fun startListening() {
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
-            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-            putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
+        if (speechRecognizer == null) {
+            _state.value = VoiceRecognitionState.Error("语音识别服务不可用")
+            return
         }
-        speechRecognizer?.startListening(intent)
+        
+        try {
+            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+                putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
+            }
+            speechRecognizer?.startListening(intent)
+        } catch (e: Exception) {
+            _state.value = VoiceRecognitionState.Error("启动语音识别失败: ${e.message}")
+        }
     }
     
     fun stopListening() {
@@ -133,45 +142,99 @@ class TextToSpeechManager(private val context: Context) {
     
     private var onSpeakComplete: (() -> Unit)? = null
     
+    fun getAvailableTtsEngines(): List<String> {
+        val pm = context.packageManager
+        val intent = Intent(TextToSpeech.Engine.ACTION_CHECK_TTS_DATA)
+        val resolveInfoList = pm.queryIntentActivities(intent, 0)
+        return resolveInfoList.map { it.activityInfo.packageName }
+    }
+    
     fun initialize(onReady: () -> Unit = {}) {
-        tts = TextToSpeech(context) { status ->
-            if (status == TextToSpeech.SUCCESS) {
-                tts?.language = Locale.CHINESE
-                tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                    override fun onStart(utteranceId: String?) {
-                        _state.value = TTSState.Speaking
+        // 初始化TTS引擎
+        try {
+            tts = TextToSpeech(context) { status ->
+                if (status == TextToSpeech.SUCCESS) {
+                    try {
+                        // 获取所有可用的TTS引擎
+                        val availableEngines = getAvailableTtsEngines()
+                        
+                        // 过滤掉Google TTS
+                        val nonGoogleEngines = availableEngines.filter { it != "com.google.android.tts" }
+                        
+                        // 优先使用非Google TTS引擎
+                        if (nonGoogleEngines.isNotEmpty()) {
+                            val selectedEngine = nonGoogleEngines.first()
+                            val result = tts?.setEngineByPackageName(selectedEngine)
+                            if (result != TextToSpeech.SUCCESS) {
+                                _state.value = TTSState.Error("无法使用所选TTS引擎: $selectedEngine")
+                                return@TextToSpeech
+                            }
+                        }
+                        
+                        // 设置语言为中文
+                        val langResult = tts?.setLanguage(Locale.CHINESE)
+                        if (langResult == TextToSpeech.LANG_MISSING_DATA || langResult == TextToSpeech.LANG_NOT_SUPPORTED) {
+                            _state.value = TTSState.Error("不支持中文语言")
+                            return@TextToSpeech
+                        }
+                        
+                        // 设置监听器
+                        tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                            override fun onStart(utteranceId: String?) {
+                                _state.value = TTSState.Speaking
+                            }
+                            
+                            override fun onDone(utteranceId: String?) {
+                                _state.value = TTSState.Completed
+                                onSpeakComplete?.invoke()
+                                _state.value = TTSState.Idle
+                            }
+                            
+                            @Deprecated("Deprecated in Java")
+                            override fun onError(utteranceId: String?) {
+                                _state.value = TTSState.Error("TTS播放错误")
+                            }
+                            
+                            override fun onError(utteranceId: String?, errorCode: Int) {
+                                _state.value = TTSState.Error("TTS播放错误: $errorCode")
+                            }
+                        })
+                        
+                        onReady()
+                    } catch (e: Exception) {
+                        _state.value = TTSState.Error("TTS初始化过程出错: ${e.message}")
                     }
-                    
-                    override fun onDone(utteranceId: String?) {
-                        _state.value = TTSState.Completed
-                        onSpeakComplete?.invoke()
-                        _state.value = TTSState.Idle
-                    }
-                    
-                    @Deprecated("Deprecated in Java")
-                    override fun onError(utteranceId: String?) {
-                        _state.value = TTSState.Error("TTS播放错误")
-                    }
-                    
-                    override fun onError(utteranceId: String?, errorCode: Int) {
-                        _state.value = TTSState.Error("TTS播放错误: $errorCode")
-                    }
-                })
-                onReady()
-            } else {
-                _state.value = TTSState.Error("TTS初始化失败")
+                } else {
+                    _state.value = TTSState.Error("TTS初始化失败")
+                }
             }
+        } catch (e: Exception) {
+            _state.value = TTSState.Error("创建TTS实例失败: ${e.message}")
         }
     }
     
     fun speak(text: String, onComplete: (() -> Unit)? = null) {
         onSpeakComplete = onComplete
-        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "utterance_${System.currentTimeMillis()}")
+        tts?.let {
+            val params = Bundle().apply {
+                putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, "utterance_${System.currentTimeMillis()}")
+                putString(TextToSpeech.Engine.KEY_PARAM_VOLUME, "1.0")
+                putString(TextToSpeech.Engine.KEY_PARAM_STREAM, "3")
+            }
+            it.speak(text, TextToSpeech.QUEUE_FLUSH, params, "utterance_${System.currentTimeMillis()}")
+        }
     }
     
     fun speakStream(text: String, onComplete: (() -> Unit)? = null) {
         onSpeakComplete = onComplete
-        tts?.speak(text, TextToSpeech.QUEUE_ADD, null, "utterance_${System.currentTimeMillis()}")
+        tts?.let {
+            val params = Bundle().apply {
+                putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, "utterance_${System.currentTimeMillis()}")
+                putString(TextToSpeech.Engine.KEY_PARAM_VOLUME, "1.0")
+                putString(TextToSpeech.Engine.KEY_PARAM_STREAM, "3")
+            }
+            it.speak(text, TextToSpeech.QUEUE_ADD, params, "utterance_${System.currentTimeMillis()}")
+        }
     }
     
     fun stop() {
